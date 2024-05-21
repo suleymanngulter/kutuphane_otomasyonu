@@ -22,7 +22,7 @@ class KitapMenusu extends StatelessWidget {
                 height: 80.0,
                 decoration: BoxDecoration(
                   image: DecorationImage(
-                    image: FileImage(File(r"C:\Users\user\demo")),
+                    image: FileImage(File(r"C:\willconnectdb")),
                     fit: BoxFit.cover,
                   ),
                   borderRadius: BorderRadius.circular(8.0),
