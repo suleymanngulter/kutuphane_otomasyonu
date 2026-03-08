@@ -1,65 +1,107 @@
-import 'package:flutter/cupertino.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
-import 'kitap.dart';
+import 'package:flutter/material.dart';
+import '../model/kitap.dart';
+import '../services/database_service.dart';
 
-class BookDatabaseProvider with ChangeNotifier{
-  final String _bookDatabaseName = "bookDatabase.db";
-  final String _bookTableName = "book";
-  final int _version = 1;
-  late Database database;
-
-  String columnKitapAdi = "kitapAdi";
-  String columnStoktaMi = "stoktaMi";
-  String columnKitapKodu = "kitapKodu";
-  String columnKitapResmi = "kitapResmi";
-  String columnKitapAciklamasi = "kitapAciklamasi";
-  String columnId = "id";
-
+class BookDatabaseProvider with ChangeNotifier {
+  final DatabaseService _databaseService = DatabaseService();
+  
   List<KitapModel> _kitapListesi = [];
+  bool _isLoading = false;
+  String? _errorMessage;
 
   List<KitapModel> get kitapListesi => _kitapListesi;
+  bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+  bool get hasError => _errorMessage != null;
 
   BookDatabaseProvider() {
-    open();
+    loadBooks();
   }
 
-  Future<void> open() async {
-    String path = join(await getDatabasesPath(), _bookDatabaseName);
-    database = await openDatabase(
-      path,
-      version: _version,
-      onCreate: (db, version) {
-        return db.execute(
-          'CREATE TABLE $_bookTableName($columnId INTEGER PRIMARY KEY, $columnKitapAdi TEXT, $columnStoktaMi INTEGER, $columnKitapKodu TEXT, $columnKitapResmi TEXT, $columnKitapAciklamasi TEXT)',
-        );
-      },
-    );
+  Future<void> loadBooks() async {
+    _setLoading(true);
+    _errorMessage = null;
+    try {
+      _kitapListesi = await _databaseService.getAllBooks();
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Kitaplar yüklenirken hata oluştu: $e';
+      notifyListeners();
+    } finally {
+      _setLoading(false);
+    }
   }
 
-  Future<List<KitapModel>> getList() async {
-    final List<Map<String, dynamic>> bookMaps = await database.query(_bookTableName);
-    return bookMaps.map((map) => KitapModel.fromMap(map)).toList();
+  Future<void> searchBooks(String query) async {
+    if (query.isEmpty) {
+      await loadBooks();
+      return;
+    }
+    
+    _setLoading(true);
+    _errorMessage = null;
+    try {
+      _kitapListesi = await _databaseService.searchBooks(query);
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = 'Arama sırasında hata oluştu: $e';
+      notifyListeners();
+    } finally {
+      _setLoading(false);
+    }
   }
 
-  Future<int> insertBook(KitapModel book) async {
-    int id = await database.insert(
-      _bookTableName,
-      book.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    return id;
+  Future<bool> addBook(KitapModel book) async {
+    _errorMessage = null;
+    try {
+      await _databaseService.insertBook(book);
+      await loadBooks();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Kitap eklenirken hata oluştu: $e';
+      notifyListeners();
+      return false;
+    }
   }
 
-  Future<int> deleteBook(int id) async {
-    return await database.delete(
-      _bookTableName,
-      where: '$columnId = ?',
-      whereArgs: [id],
-    );
+  Future<bool> updateBook(KitapModel book) async {
+    if (book.id == null) return false;
+    
+    _errorMessage = null;
+    try {
+      await _databaseService.updateBook(book);
+      await loadBooks();
+      return true;
+    } catch (e) {
+      _errorMessage = 'Kitap güncellenirken hata oluştu: $e';
+      notifyListeners();
+      return false;
+    }
   }
 
-  Future<void> close() async {
-    await database.close();
+  Future<bool> deleteBook(int id) async {
+    _errorMessage = null;
+    try {
+      final result = await _databaseService.deleteBook(id);
+      if (result > 0) {
+        await loadBooks();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      _errorMessage = 'Kitap silinirken hata oluştu: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void _setLoading(bool value) {
+    _isLoading = value;
+    notifyListeners();
+  }
+
+  void clearError() {
+    _errorMessage = null;
+    notifyListeners();
   }
 }

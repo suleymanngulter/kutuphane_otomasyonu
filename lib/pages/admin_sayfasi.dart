@@ -1,162 +1,234 @@
-import 'package:basit_arayuz/pages/uygulama.dart';
 import 'package:flutter/material.dart';
-import 'package:basit_arayuz/model/kitap.dart';
-import 'package:basit_arayuz/model/kitap_database_provider.dart';
-import 'kitap_menusu.dart';
-
+import 'package:provider/provider.dart';
+import 'package:kutuphane_otomasyonu/model/kitap.dart';
+import 'package:kutuphane_otomasyonu/model/kitap_database_provider.dart';
+import 'package:kutuphane_otomasyonu/pages/uygulama.dart';
+import 'package:kutuphane_otomasyonu/pages/kitap_menusu.dart';
+import 'package:kutuphane_otomasyonu/core/constants/app_constants.dart';
 
 class AdminSayfasi extends StatefulWidget {
+  const AdminSayfasi({super.key});
+
   @override
-  _AdminSayfasiState createState() => _AdminSayfasiState();
+  State<AdminSayfasi> createState() => _AdminSayfasiState();
 }
 
 class _AdminSayfasiState extends State<AdminSayfasi> {
-  BookDatabaseProvider provider = BookDatabaseProvider();
-  late List<KitapModel> kitapList;
-
   @override
   void initState() {
     super.initState();
-    kitapList = [];
-    updateListView();
-  }
-
-  void updateListView() {
-    provider.getList().then((kitaplar) {
-      setState(() {
-        kitapList = kitaplar;
-      });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<BookDatabaseProvider>().loadBooks();
     });
-  }
-
-
-  void _deleteKitap(int kitapKodu) {
-    provider.deleteBook(kitapKodu).then((result) {
-      if (result != 0) {
-        _showSnackBar(context, 'Kitap Başarıyla Silindi');
-        updateListView();
-      }
-    });
-  }
-
-  void _showSnackBar(BuildContext context, String message) {
-    final snackBar = SnackBar(content: Text(message));
-    ScaffoldMessenger.of(context).showSnackBar(snackBar);
   }
 
   void _showDeleteBookDialog() {
+    final provider = context.read<BookDatabaseProvider>();
+    
+    if (provider.kitapListesi.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Silinecek kitap bulunamadı'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        String silinecekKitapAdi = '';
-        return AlertDialog(
-          title: Text('Kitap Silme'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Silmek istediğiniz kitabı seçin'),
-              TextField(
-                decoration: InputDecoration(labelText: 'Kitap Adı'),
-                onChanged: (value) {
-                  silinecekKitapAdi = value;
-                },
+        String? selectedBookId;
+        
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Kitap Sil'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    labelText: 'Silinecek Kitabı Seçin',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: provider.kitapListesi.map((kitap) {
+                    return DropdownMenuItem<String>(
+                      value: kitap.id.toString(),
+                      child: Text(
+                        '${kitap.kitapAdi}${kitap.kitapKodu != null ? " (${kitap.kitapKodu})" : ""}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setDialogState(() {
+                      selectedBookId = value;
+                    });
+                  },
+                ),
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('İptal'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                KitapModel? silinecekKitap;
-                try {
-                  silinecekKitap = kitapList.firstWhere(
-                        (kitap) => kitap.kitapAdi == silinecekKitapAdi,
-                  );
-                } catch (e) {
-
-                  silinecekKitap = null;
-                }
-
-                if (silinecekKitap != null) {
-                  _deleteKitap(silinecekKitap.kitapKodu as int);
-                } else {
-                  _showSnackBar(context, 'Kitap bulunamadı');
-                }
-
-                Navigator.of(context).pop();
-              },
-              child: Text('Sil'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  onPressed: selectedBookId == null
+                      ? null
+                      : () async {
+                          if (selectedBookId != null) {
+                            final success = await provider.deleteBook(
+                              int.parse(selectedBookId!),
+                            );
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    success
+                                        ? AppConstants.successBookDeleted
+                                        : AppConstants.errorDeleteFailed,
+                                  ),
+                                  backgroundColor: success
+                                      ? AppConstants.successColor
+                                      : AppConstants.errorColor,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Sil'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
-
   void _showKitapEkleForm() {
+    final formKey = GlobalKey<FormState>();
+    String yeniKitapAdi = '';
+    String yeniKitapAciklamasi = '';
+    String yeniKitapResmi = '';
+    String yeniKitapKodu = '';
+    bool stoktaMi = true;
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        String yeniKitapAdi = '';
-        String yeniKitapAciklamasi = '';
-        String yeniKitapResmi = '';
-
-        return AlertDialog(
-          title: Text('Yeni Kitap Ekle'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                decoration: InputDecoration(labelText: 'Kitap Adı'),
-                onChanged: (value) {
-                  yeniKitapAdi = value;
-                },
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Yeni Kitap Ekle'),
+              content: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        decoration: const InputDecoration(
+                          labelText: 'Kitap Adı *',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => yeniKitapAdi = value,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Kitap adı zorunludur';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        decoration: const InputDecoration(
+                          labelText: 'Kitap Kodu',
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => yeniKitapKodu = value,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        decoration: const InputDecoration(
+                          labelText: 'Kitap Açıklaması',
+                          border: OutlineInputBorder(),
+                        ),
+                        maxLines: 3,
+                        onChanged: (value) => yeniKitapAciklamasi = value,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        decoration: const InputDecoration(
+                          labelText: 'Kitap Resmi URL',
+                          border: OutlineInputBorder(),
+                          hintText: 'https://example.com/image.jpg',
+                        ),
+                        onChanged: (value) => yeniKitapResmi = value,
+                      ),
+                      const SizedBox(height: 16),
+                      CheckboxListTile(
+                        title: const Text('Stokta Var'),
+                        value: stoktaMi,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            stoktaMi = value ?? true;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              TextField(
-                decoration: InputDecoration(labelText: 'Kitap Açıklaması'),
-                onChanged: (value) {
-                  yeniKitapAciklamasi = value;
-                },
-              ),
-              TextField(
-                decoration: InputDecoration(labelText: 'Kitap Resmi URL'),
-                onChanged: (value) {
-                  yeniKitapResmi = value;
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('İptal'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                KitapModel yeniKitap = KitapModel(
-                  kitapAdi: yeniKitapAdi,
-                  kitapAciklamasi: yeniKitapAciklamasi,
-                  kitapResmi: yeniKitapResmi,
-                );
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('İptal'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      final provider = context.read<BookDatabaseProvider>();
+                      final yeniKitap = KitapModel(
+                        kitapAdi: yeniKitapAdi,
+                        kitapAciklamasi: yeniKitapAciklamasi.isEmpty
+                            ? null
+                            : yeniKitapAciklamasi,
+                        kitapResmi:
+                            yeniKitapResmi.isEmpty ? null : yeniKitapResmi,
+                        kitapKodu:
+                            yeniKitapKodu.isEmpty ? null : yeniKitapKodu,
+                        stoktaMi: stoktaMi,
+                      );
 
-                provider.insertBook(yeniKitap).then((id) {
-                  _showSnackBar(context, 'Kitap Başarıyla Eklendi');
-                  updateListView();
-                });
-
-                Navigator.of(context).pop();
-              },
-              child: Text('Ekle'),
-            ),
-          ],
+                      final success = await provider.addBook(yeniKitap);
+                      if (context.mounted) {
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              success
+                                  ? AppConstants.successBookAdded
+                                  : AppConstants.errorSaveFailed,
+                            ),
+                            backgroundColor: success
+                                ? AppConstants.successColor
+                                : AppConstants.errorColor,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text('Ekle'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
@@ -165,18 +237,92 @@ class _AdminSayfasiState extends State<AdminSayfasi> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.blue.shade500,
       appBar: AppBar(
-        title: Text('Admin Sayfası'),
-        backgroundColor: Colors.blue.shade900,
+        title: const Text('Admin Paneli'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Ana Sayfaya Dön',
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const UygulamaArayuzu(),
+                ),
+                (route) => false,
+              );
+            },
+          ),
+        ],
       ),
-      body: kitapList.isEmpty
-          ? Center(child: CircularProgressIndicator())
-          : ListView.builder(
-        itemCount: kitapList.length,
-        itemBuilder: (context, index) {
-          return KitapMenusu(
-            kitap: kitapList[index],
+      body: Consumer<BookDatabaseProvider>(
+        builder: (context, provider, child) {
+          if (provider.isLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (provider.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline,
+                    size: 64,
+                    color: Colors.red,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    provider.errorMessage ?? 'Bir hata oluştu',
+                    style: const TextStyle(fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => provider.loadBooks(),
+                    child: const Text('Tekrar Dene'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          if (provider.kitapListesi.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.menu_book,
+                    size: 64,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Henüz kitap eklenmemiş',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Yeni kitap eklemek için + butonuna tıklayın',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return RefreshIndicator(
+            onRefresh: () => provider.loadBooks(),
+            child: ListView.builder(
+              padding: const EdgeInsets.all(AppConstants.defaultPadding),
+              itemCount: provider.kitapListesi.length,
+              itemBuilder: (context, index) {
+                return KitapMenusu(
+                  kitap: provider.kitapListesi[index],
+                );
+              },
+            ),
           );
         },
       ),
@@ -187,30 +333,19 @@ class _AdminSayfasiState extends State<AdminSayfasi> {
           FloatingActionButton(
             onPressed: _showKitapEkleForm,
             tooltip: 'Kitap Ekle',
-            child: Icon(Icons.add),
+            heroTag: 'add',
+            child: const Icon(Icons.add),
           ),
-          SizedBox(height: 16),
+          const SizedBox(height: 16),
           FloatingActionButton(
             onPressed: _showDeleteBookDialog,
             tooltip: 'Kitap Sil',
-            child: Icon(Icons.delete),
-          ),
-          SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.popUntil(context, ModalRoute.withName('/'));
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (BuildContext context) => UygulamaArayuzu(),
-                ),
-              );
-            },
-            child: Text('Uygulamaya Dön'),
+            heroTag: 'delete',
+            backgroundColor: Colors.red,
+            child: const Icon(Icons.delete),
           ),
         ],
       ),
     );
   }
-
 }
